@@ -3,6 +3,7 @@
     <!-- device name -->
 
     <!-- ROS topic names -->
+    <param name="camera_hz"     type="int"       value="20" />
     <param name="left_topic"            value="left/image_rect_color" />
     <param name="left_raw_topic"        value="left/image_raw_color" />
     <param name="left_cam_info_topic"   value="left/camera_info" />
@@ -11,7 +12,7 @@
     <param name="right_cam_info_topic"  value="right/camera_info" />
     <param name="depth_topic"           value="depth/depth_registered" />
     <param name="imu_topic"             value="imu" />
-    <param name="device_id"             value="0" />
+    <param name="device_name"           value="0" />
 
   </node>
 

@@ -3,7 +3,7 @@
     <!-- device name -->
 
     <!-- ROS topic names -->
-    <param name="camera_hz"     type="int"       value="20" />
+    <param name="camera_hz"     type="int"       value="60" />
     <param name="left_topic"            value="left/image_rect_color" />
     <param name="left_raw_topic"        value="left/image_raw_color" />
     <param name="left_cam_info_topic"   value="left/camera_info" />

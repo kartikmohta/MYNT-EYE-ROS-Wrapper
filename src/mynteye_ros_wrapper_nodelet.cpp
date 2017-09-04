@@ -41,6 +41,7 @@ namespace mynt_wrapper {
     image_transport::Publisher pub_left;
     image_transport::Publisher pub_right;
 
+    sensor_msgs::Imu msg;
     ros::Publisher pub_left_cam_info;
     ros::Publisher pub_right_cam_info;
     ros::Publisher pub_imu;
@@ -89,12 +90,11 @@ void publishDepth(cv::Mat depth, image_transport::Publisher &pub_depth, std::str
     depth.convertTo(depth, CV_16UC1);
     pub_depth.publish(imageToROSmsg(depth,sensor_msgs::image_encodings::TYPE_16UC1,depth_frame_id, t));
 }
-void publishIMU( mynteye::IMUData imudata,ros::Publisher &pub,std::string imu_frame_id,ros::Time t) {
-    sensor_msgs::Imu msg;
+void publishIMU( sensor_msgs::Imu msg,mynteye::IMUData imudata,ros::Publisher &pub,std::string imu_frame_id,ros::Time t) {
+
 
     msg.header.stamp = t;
     msg.header.frame_id = imu_frame_id;
-
     msg.linear_acceleration.x = imudata.accel_x * 9.8;
     msg.linear_acceleration.y = imudata.accel_y * 9.8;
     msg.linear_acceleration.z = imudata.accel_z * 9.8;
@@ -221,7 +221,7 @@ void device_poll() {
     while (nh_ns.ok()) {
 
         cam.Grab();
-        ros::Time time = ros::Time::now();
+
 
 
         int left_SubNumber = pub_left.getNumSubscribers();
@@ -232,6 +232,7 @@ void device_poll() {
         int imu_SubNumber = pub_imu.getNumSubscribers();
         bool runLoop = (left_SubNumber + left_raw_SubNumber + right_SubNumber + right_raw_SubNumber + depth_SubNumber + imu_SubNumber) > 0;
             if(runLoop){
+            ros::Time time = ros::Time::now();
             if (left_SubNumber > 0) {
                     cam.RetrieveImage(leftImRGB, mynteye::View::VIEW_LEFT) ;
                     publishCamInfo(left_cam_info_msg, pub_left_cam_info, time);
@@ -268,8 +269,8 @@ void device_poll() {
                        for(int i = 0 ;i < size;i++)
                        {
                            imudata = imudatas[i];
-                           publishIMU(imudata,pub_imu,imu_frame_id,time);
-                           ros::spinOnce();
+                           publishIMU(msg,imudata,pub_imu,imu_frame_id,ros::Time::now());
+                       //    ros::spinOnce();
                            imu_rate.sleep();
                        }
                 }

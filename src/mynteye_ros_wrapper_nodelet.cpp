@@ -49,10 +49,10 @@ namespace mynt_wrapper {
     std::string left_frame_id;
     std::string depth_frame_id;
     std::string imu_frame_id ;
-    std::string device_name;
 
-    int rate;
-    int camera_rate;
+    std::string device_name;
+    int camera_hz;
+    int imu_hz;
 
 sensor_msgs::ImagePtr imageToROSmsg(cv::Mat img,const std::string encodingType,std::string frameId,ros::Time t) {
     sensor_msgs::ImagePtr ptr = boost::make_shared<sensor_msgs::Image>();
@@ -83,7 +83,7 @@ sensor_msgs::ImagePtr imageToROSmsg(cv::Mat img,const std::string encodingType,s
     return ptr;
 }
 void publishImage(cv::Mat img,image_transport::Publisher &pub_img,std::string img_frame_id,ros::Time t) {
-    pub_img.publish(imageToROSmsg(img, sensor_msgs::image_encodings::TYPE_8UC1, img_frame_id, t));
+    pub_img.publish(imageToROSmsg(img, sensor_msgs::image_encodings::MONO8, img_frame_id, t));
 }
 void publishDepth(cv::Mat depth, image_transport::Publisher &pub_depth, std::string depth_frame_id, ros::Time t) {
     depth.convertTo(depth, CV_16UC1);
@@ -200,18 +200,14 @@ void fillCamInfo(mynteye::Resolution resolution,mynteye::CalibrationParameters* 
     right_cam_info_msg->header.frame_id = right_frame_id;
 }
 void device_poll() {
-    ros::Rate loop_rate(rate);
-
+    ros::Rate camera_rate(camera_hz);
+    ros::Rate imu_rate(imu_hz);
     mynteye::CalibrationParameters *calib_params = nullptr;
-    mynteye::InitParameters init_params(device_name, camera_rate, nullptr);
-    mynteye::Camera cam;
+    mynteye::InitParameters params(device_name);
+    cam.Open(params);
     //cam.SetMode(Mode::MODE_CPU);
-    cam.Open(init_params);
+    cam.ActivateAsyncGrabFeature();
     calib_params = new mynteye::CalibrationParameters(cam.GetCalibrationParameters());
-    cam.ActivateDepthMapFeature();
-
-    mynteye::ErrorCode code;
-
     cv::Mat img_left, img_right,depthmap,leftImRGB,rightImRGB;
 
     sensor_msgs::CameraInfoPtr left_cam_info_msg(new sensor_msgs::CameraInfo());
@@ -223,24 +219,26 @@ void device_poll() {
     std::uint32_t timestamp;
 
     while (nh_ns.ok()) {
+
+        cam.Grab();
+        ros::Time time = ros::Time::now();
+
+
         int left_SubNumber = pub_left.getNumSubscribers();
         int left_raw_SubNumber = pub_raw_left.getNumSubscribers();
         int right_SubNumber = pub_right.getNumSubscribers();
         int right_raw_SubNumber = pub_raw_right.getNumSubscribers();
         int depth_SubNumber = pub_depth.getNumSubscribers();
         int imu_SubNumber = pub_imu.getNumSubscribers();
-
-        code = cam.Grab();
-        ros::Time time = ros::Time::now();
-
-        if (cam.RetrieveImage(img_left, mynteye::View::VIEW_LEFT_UNRECTIFIED) == mynteye::ErrorCode::SUCCESS &&
-            cam.RetrieveImage(img_right, mynteye::View::VIEW_RIGHT_UNRECTIFIED) == mynteye::ErrorCode::SUCCESS           ) {
+        bool runLoop = (left_SubNumber + left_raw_SubNumber + right_SubNumber + right_raw_SubNumber + depth_SubNumber + imu_SubNumber) > 0;
+            if(runLoop){
             if (left_SubNumber > 0) {
                     cam.RetrieveImage(leftImRGB, mynteye::View::VIEW_LEFT) ;
                     publishCamInfo(left_cam_info_msg, pub_left_cam_info, time);
                     publishImage(leftImRGB, pub_left, left_frame_id, time);
             }
             if (left_raw_SubNumber > 0) {
+                    cam.RetrieveImage(img_left, mynteye::View::VIEW_LEFT_UNRECTIFIED);
                     publishCamInfo(left_cam_info_msg, pub_left_cam_info, time);
                     publishImage(img_left, pub_raw_left, left_frame_id, time);
             }
@@ -250,15 +248,17 @@ void device_poll() {
                     publishImage(rightImRGB, pub_right, right_frame_id, time);
             }
             if (right_raw_SubNumber > 0) {
+                   cam.RetrieveImage(img_right, mynteye::View::VIEW_RIGHT_UNRECTIFIED);
                     publishCamInfo(right_cam_info_msg, pub_right_cam_info, time);
                     publishImage(img_right, pub_raw_right, right_frame_id, time);
             }
 
             if (depth_SubNumber > 0) {
-                    cam.RetrieveImage(depthmap, mynteye::View::VIEW_DEPTH_MAP);
-                //  publishCamInfo(depth_cam_info_msg, pub_depth_cam_info, time);
-                    publishDepth(depthmap, pub_depth, depth_frame_id, time);
+             //    cam.ActivateDepthMapFeature();
+              //   cam.RetrieveImage(depthmap, mynteye::View::VIEW_DEPTH_MAP);
+               //  publishDepth(depthmap, pub_depth, depth_frame_id, time);
             }
+            camera_rate.sleep();
             if (imu_SubNumber > 0) {
                 mynteye::IMUData imudata;
                 cam.RetrieveIMUData(imudatas, timestamp);
@@ -270,14 +270,14 @@ void device_poll() {
                            imudata = imudatas[i];
                            publishIMU(imudata,pub_imu,imu_frame_id,time);
                            ros::spinOnce();
-                           loop_rate.sleep();
+                           imu_rate.sleep();
                        }
                 }
             }
-        };
-       loop_rate.sleep();
+
+        }
     }
-    cam.Close();
+
 }
 
 void onInit() {
@@ -295,16 +295,14 @@ void onInit() {
     depth_frame_id = "/mynt_depth_frame";
     std::string imu_topic = "imu";
     imu_frame_id = "/mynt_imu_frame";
-    int  device_id ;
+
     device_name = "0";
-
-
-    rate = 250;
-    camera_rate = 60;
+    camera_hz = 30;
+    imu_hz = 250;
 
     nh = getMTNodeHandle();
     nh_ns = getMTPrivateNodeHandle();
-    nh_ns.getParam("frame_rate", rate);
+    nh_ns.getParam("camera_hz", camera_hz);
     nh_ns.getParam("left_topic", left_topic);
     nh_ns.getParam("left_raw_topic", left_raw_topic);
     nh_ns.getParam("left_cam_info_topic", left_cam_info_topic);
@@ -312,15 +310,9 @@ void onInit() {
     nh_ns.getParam("right_raw_topic", right_raw_topic);
     nh_ns.getParam("right_cam_info_topic", right_cam_info_topic);
     nh_ns.getParam("depth_topic", depth_topic);
-    nh_ns.getParam("device_id", device_id);
+    nh_ns.getParam("device_name", device_name);
     nh_ns.getParam("imu_topic", imu_topic);
 
-    if(device_id)
-    {
-        std::stringstream ss;
-        ss<<device_id;
-        ss>>device_name;
-    }
 
 
     image_transport::ImageTransport it_mynteye(nh);
@@ -336,17 +328,17 @@ void onInit() {
     pub_depth = it_mynteye.advertise(depth_topic, 1);
     NODELET_INFO_STREAM("Advertized on topic " << depth_topic);
     pub_imu = nh.advertise<sensor_msgs::Imu>(imu_topic, 1);
-    NODELET_INFO_STREAM("Advertimynt on topic " << imu_topic);
+    NODELET_INFO_STREAM("Advertized on topic " << imu_topic);
     pub_left_cam_info = nh.advertise<sensor_msgs::CameraInfo>(left_cam_info_topic, 1);
-    NODELET_INFO_STREAM("Advertimynt on topic " << left_cam_info_topic);
+    NODELET_INFO_STREAM("Advertized on topic " << left_cam_info_topic);
     pub_right_cam_info = nh.advertise<sensor_msgs::CameraInfo>(right_cam_info_topic, 1);
-    NODELET_INFO_STREAM("Advertimynt on topic " << right_cam_info_topic);
+    NODELET_INFO_STREAM("Advertized on topic " << right_cam_info_topic);
 
     device_poll_thread = boost::shared_ptr<boost::thread>
             (new boost::thread(boost::bind(&MYNTWrapperNodelet::device_poll, this)));
 }
 
-
+~MYNTWrapperNodelet(){cam.Close();}
     };
 }
 

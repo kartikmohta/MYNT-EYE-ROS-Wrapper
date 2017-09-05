@@ -14,7 +14,7 @@
     <param name="right_cam_info_topic"  value="right/camera_info" />
     <param name="depth_topic"           value="depth/depth_registered" />
     <param name="imu_topic"             value="imu" />
-    <param name="device_name"           value="1" />
+    <param name="device_name"     type="int"       value="1" />
 
   </node>
 

@@ -51,7 +51,7 @@ namespace mynt_wrapper {
     std::string depth_frame_id;
     std::string imu_frame_id ;
 
-    std::string device_name;
+    int device_name;
     int camera_hz;
     int imu_hz;
 
@@ -203,7 +203,7 @@ void device_poll() {
     ros::Rate camera_rate(camera_hz);
     ros::Rate imu_rate(imu_hz);
     mynteye::CalibrationParameters *calib_params = nullptr;
-    mynteye::InitParameters params(device_name);
+    mynteye::InitParameters params(std::to_string(device_name));
     cam.Open(params);
     //cam.SetMode(Mode::MODE_CPU);
     cam.ActivateAsyncGrabFeature();
@@ -297,8 +297,8 @@ void onInit() {
     std::string imu_topic = "imu";
     imu_frame_id = "/mynt_imu_frame";
 
-    device_name = "0";
-    camera_hz =;
+    device_name = 0;
+    camera_hz = 30;
     imu_hz = 250;
 
     nh = getMTNodeHandle();

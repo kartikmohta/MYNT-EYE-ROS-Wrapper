@@ -298,7 +298,7 @@ void onInit() {
     imu_frame_id = "/mynt_imu_frame";
 
     device_name = "0";
-    camera_hz = 30;
+    camera_hz =;
     imu_hz = 250;
 
     nh = getMTNodeHandle();

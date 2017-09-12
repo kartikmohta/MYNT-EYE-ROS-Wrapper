@@ -1,10 +1,9 @@
 <launch>
   <node name="mynteye_ros_wrapper" pkg="mynteye_ros_wrapper" type="mynteye_wrapper_node" output="screen">
-    <!-- device name -->
-
     <!-- ROS topic names -->
 
-    <param name="camera_hz"     type="int"       value="20" />
+    <param name="device_name"   type="int"  value="1" />
+    <param name="camera_hz"     type="int"  value="20" />
 
     <param name="left_topic"            value="left/image_rect_color" />
     <param name="left_raw_topic"        value="left/image_raw_color" />
@@ -14,20 +13,18 @@
     <param name="right_cam_info_topic"  value="right/camera_info" />
     <param name="depth_topic"           value="depth/depth_registered" />
     <param name="imu_topic"             value="imu" />
-    <param name="device_name"     type="int"       value="1" />
 
   </node>
 
-  <arg name="model" default="$(find mynteye_ros_wrapper)/urdf/mynt.urdf"/>
+  <arg name="model" default="$(find mynteye_ros_wrapper)/urdf/mynt.urdf" />
   <arg name="gui" default="true" />
   <arg name="rvizconfig" default="$(find urdf_tutorial)/rviz/urdf.rviz" />
 
   <param name="robot_description" command="$(find xacro)/xacro.py $(arg model)" />
-  <param name="use_gui" value="$(arg gui)"/>
+  <param name="use_gui" value="$(arg gui)" />
 
   <node name="joint_state_publisher" pkg="joint_state_publisher" type="joint_state_publisher" />
   <node name="robot_state_publisher" pkg="robot_state_publisher" type="state_publisher" />
   <node name="rviz" pkg="rviz" type="rviz" args="-d $(arg rvizconfig)" required="true" />
-
 
 </launch>

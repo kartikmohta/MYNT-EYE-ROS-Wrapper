@@ -22,10 +22,11 @@
 #include "calibration_parameters.h"
 #include "init_parameters.h"
 
+// #define VERBOSE
 
 namespace mynt_wrapper {
 
-    class MYNTWrapperNodelet : public nodelet::Nodelet {
+class MYNTWrapperNodelet : public nodelet::Nodelet {
 
     ros::NodeHandle nh;
     ros::NodeHandle nh_ns;
@@ -53,12 +54,14 @@ namespace mynt_wrapper {
 
     int device_name;
     int camera_hz;
-    int imu_hz;
 
-sensor_msgs::ImagePtr imageToROSmsg(cv::Mat img,const std::string encodingType,std::string frameId,ros::Time t) {
+sensor_msgs::ImagePtr imageToROSmsg(const cv::Mat &img,
+        const std::string &encodingType,
+        const std::string &frameId,
+        const ros::Time &stamp) {
     sensor_msgs::ImagePtr ptr = boost::make_shared<sensor_msgs::Image>();
     sensor_msgs::Image& imgMessage = *ptr;
-    imgMessage.header.stamp = t;
+    imgMessage.header.stamp = stamp;
     imgMessage.header.frame_id = frameId;
     imgMessage.height = img.rows;
     imgMessage.width = img.cols;
@@ -83,18 +86,30 @@ sensor_msgs::ImagePtr imageToROSmsg(cv::Mat img,const std::string encodingType,s
 
     return ptr;
 }
-void publishImage(cv::Mat img,image_transport::Publisher &pub_img,std::string img_frame_id,ros::Time t) {
-    pub_img.publish(imageToROSmsg(img, sensor_msgs::image_encodings::MONO8, img_frame_id, t));
+
+void publishImage(const cv::Mat &img,
+        const image_transport::Publisher &pub_img,
+        const std::string &img_frame_id,
+        const ros::Time &stamp) {
+    pub_img.publish(imageToROSmsg(img, sensor_msgs::image_encodings::MONO8, img_frame_id, stamp));
 }
-void publishDepth(cv::Mat depth, image_transport::Publisher &pub_depth, std::string depth_frame_id, ros::Time t) {
+
+void publishDepth(cv::Mat &depth,
+        const image_transport::Publisher &pub_depth,
+        const std::string &depth_frame_id,
+        const ros::Time &stamp) {
     depth.convertTo(depth, CV_16UC1);
-    pub_depth.publish(imageToROSmsg(depth,sensor_msgs::image_encodings::TYPE_16UC1,depth_frame_id, t));
+    pub_depth.publish(imageToROSmsg(depth, sensor_msgs::image_encodings::TYPE_16UC1, depth_frame_id, stamp));
 }
-void publishIMU( sensor_msgs::Imu msg,mynteye::IMUData imudata,ros::Publisher &pub,std::string imu_frame_id,ros::Time t) {
 
-
-    msg.header.stamp = t;
+void publishIMU(sensor_msgs::Imu &msg,
+        const mynteye::IMUData &imudata,
+        const ros::Publisher &pub,
+        const std::string imu_frame_id,
+        const ros::Time &stamp) {
+    msg.header.stamp = stamp;
     msg.header.frame_id = imu_frame_id;
+
     msg.linear_acceleration.x = imudata.accel_x * 9.8;
     msg.linear_acceleration.y = imudata.accel_y * 9.8;
     msg.linear_acceleration.z = imudata.accel_z * 9.8;
@@ -128,17 +143,24 @@ void publishIMU( sensor_msgs::Imu msg,mynteye::IMUData imudata,ros::Publisher &p
     msg.angular_velocity_covariance[8] = 0.02;
 
     pub.publish(msg);
-
 }
-void publishCamInfo(sensor_msgs::CameraInfoPtr cam_info_msg,ros::Publisher pub_cam_info,ros::Time t) {
+
+void publishCamInfo(const sensor_msgs::CameraInfoPtr &cam_info_msg,
+        const ros::Publisher &pub_cam_info,
+        const ros::Time &stamp) {
     static int seq = 0;
-    cam_info_msg->header.stamp = t;
+    cam_info_msg->header.stamp = stamp;
     cam_info_msg->header.seq = seq;
     pub_cam_info.publish(cam_info_msg);
-    seq++;
+    ++seq;
 }
-void fillCamInfo(mynteye::Resolution resolution,mynteye::CalibrationParameters* calibration_parameters,sensor_msgs::CameraInfoPtr left_cam_info_msg,sensor_msgs::CameraInfoPtr right_cam_info_msg,
-        std::string left_frame_id,std::string right_frame_id) {
+
+void fillCamInfo(const mynteye::Resolution &resolution,
+        mynteye::CalibrationParameters* calibration_parameters,
+        const sensor_msgs::CameraInfoPtr &left_cam_info_msg,
+        const sensor_msgs::CameraInfoPtr &right_cam_info_msg,
+        const std::string &left_frame_id,
+        const std::string &right_frame_id) {
     int width = resolution.width;
     int height = resolution.height;
 
@@ -163,14 +185,13 @@ void fillCamInfo(mynteye::Resolution resolution,mynteye::CalibrationParameters* 
     left_cam_info_msg->D[4] = 0.0;
     right_cam_info_msg->D[4] = 0.0;
 
-
     for(int i = 0; i < 3; i++) {
         for(int j = 0; j < 3; j++) {
-            left_cam_info_msg->K[i * 3 + j] = calibration_parameters -> M1.at<double>(i, j);
-            right_cam_info_msg->K[i * 3 + j] = calibration_parameters -> M2.at<double>(i, j);
+            left_cam_info_msg->K[i * 3 + j] = calibration_parameters->M1.at<double>(i, j);
+            right_cam_info_msg->K[i * 3 + j] = calibration_parameters->M2.at<double>(i, j);
 
-            left_cam_info_msg->R[i * 3 + j] = calibration_parameters ->R .at<double>(i, j);
-            right_cam_info_msg->R[i * 3 + j] = calibration_parameters ->R .at<double>(i, j);
+            left_cam_info_msg->R[i * 3 + j] = calibration_parameters->R.at<double>(i, j);
+            right_cam_info_msg->R[i * 3 + j] = calibration_parameters->R.at<double>(i, j);
         }
     }
 
@@ -199,30 +220,42 @@ void fillCamInfo(mynteye::Resolution resolution,mynteye::CalibrationParameters* 
     left_cam_info_msg->header.frame_id = left_frame_id;
     right_cam_info_msg->header.frame_id = right_frame_id;
 }
+
 void device_poll() {
-    ros::Rate camera_rate(camera_hz);
-    ros::Rate imu_rate(imu_hz);
-    mynteye::CalibrationParameters *calib_params = nullptr;
-    mynteye::InitParameters params(std::to_string(device_name));
+    using namespace mynteye;
+
+    ros::Rate loop_rate(camera_hz);
+
+    InitParameters params(std::to_string(device_name));
     cam.Open(params);
     //cam.SetMode(Mode::MODE_CPU);
-    cam.ActivateAsyncGrabFeature();
-    calib_params = new mynteye::CalibrationParameters(cam.GetCalibrationParameters());
+    cam.ActivateAsyncGrabFeature(true);
+    //cam.ActivateDepthMapFeature();
+
+    CalibrationParameters *calib_params = nullptr;
+    calib_params = new CalibrationParameters(cam.GetCalibrationParameters());
     cv::Mat img_left, img_right,depthmap,leftImRGB,rightImRGB;
 
     sensor_msgs::CameraInfoPtr left_cam_info_msg(new sensor_msgs::CameraInfo());
     sensor_msgs::CameraInfoPtr right_cam_info_msg(new sensor_msgs::CameraInfo());
     //sensor_msgs::CameraInfoPtr depth_cam_info_msg(new sensor_msgs::CameraInfo());
-    fillCamInfo(resolution,calib_params,left_cam_info_msg, right_cam_info_msg, left_frame_id, right_frame_id);
+    fillCamInfo(resolution, calib_params, left_cam_info_msg, right_cam_info_msg, left_frame_id, right_frame_id);
 
-    std::vector<mynteye::IMUData> imudatas;
+    std::vector<IMUData> imudatas;
     std::uint32_t timestamp;
+
+    std::uint32_t imu_time_beg = -1;
+    double imu_ros_time_beg;
+
+#ifdef VERBOSE
+    std::uint64_t imu_count = 0;
+    std::uint64_t loop_count = 0;
+    double loop_beg = ros::Time::now().toSec();
+#endif
 
     while (nh_ns.ok()) {
 
-        cam.Grab();
-
-
+        if (cam.Grab() != ErrorCode::SUCCESS) continue;
 
         int left_SubNumber = pub_left.getNumSubscribers();
         int left_raw_SubNumber = pub_raw_left.getNumSubscribers();
@@ -231,54 +264,79 @@ void device_poll() {
         int depth_SubNumber = pub_depth.getNumSubscribers();
         int imu_SubNumber = pub_imu.getNumSubscribers();
         bool runLoop = (left_SubNumber + left_raw_SubNumber + right_SubNumber + right_raw_SubNumber + depth_SubNumber + imu_SubNumber) > 0;
-            if(runLoop){
+        if (runLoop) {
             ros::Time time = ros::Time::now();
-            if (left_SubNumber > 0) {
-                    cam.RetrieveImage(leftImRGB, mynteye::View::VIEW_LEFT) ;
-                    publishCamInfo(left_cam_info_msg, pub_left_cam_info, time);
-                    publishImage(leftImRGB, pub_left, left_frame_id, time);
+            if (left_SubNumber > 0 &&
+                    cam.RetrieveImage(leftImRGB, View::VIEW_LEFT) == ErrorCode::SUCCESS) {
+                publishCamInfo(left_cam_info_msg, pub_left_cam_info, time);
+                publishImage(leftImRGB, pub_left, left_frame_id, time);
             }
-            if (left_raw_SubNumber > 0) {
-                    cam.RetrieveImage(img_left, mynteye::View::VIEW_LEFT_UNRECTIFIED);
-                    publishCamInfo(left_cam_info_msg, pub_left_cam_info, time);
-                    publishImage(img_left, pub_raw_left, left_frame_id, time);
+            if (left_raw_SubNumber > 0 &&
+                    cam.RetrieveImage(img_left, View::VIEW_LEFT_UNRECTIFIED) == ErrorCode::SUCCESS) {
+                publishCamInfo(left_cam_info_msg, pub_left_cam_info, time);
+                publishImage(img_left, pub_raw_left, left_frame_id, time);
             }
-            if (right_SubNumber > 0) {
-                    cam.RetrieveImage(rightImRGB, mynteye::View::VIEW_RIGHT) ;
-                    publishCamInfo(right_cam_info_msg, pub_right_cam_info, time);
-                    publishImage(rightImRGB, pub_right, right_frame_id, time);
+            if (right_SubNumber > 0 &&
+                    cam.RetrieveImage(rightImRGB, View::VIEW_RIGHT) == ErrorCode::SUCCESS) {
+                publishCamInfo(right_cam_info_msg, pub_right_cam_info, time);
+                publishImage(rightImRGB, pub_right, right_frame_id, time);
             }
-            if (right_raw_SubNumber > 0) {
-                   cam.RetrieveImage(img_right, mynteye::View::VIEW_RIGHT_UNRECTIFIED);
-                    publishCamInfo(right_cam_info_msg, pub_right_cam_info, time);
-                    publishImage(img_right, pub_raw_right, right_frame_id, time);
+            if (right_raw_SubNumber > 0 &&
+                    cam.RetrieveImage(img_right, View::VIEW_RIGHT_UNRECTIFIED) == ErrorCode::SUCCESS) {
+                publishCamInfo(right_cam_info_msg, pub_right_cam_info, time);
+                publishImage(img_right, pub_raw_right, right_frame_id, time);
+            }
+            if (depth_SubNumber > 0) {
+                /*if (cam.RetrieveImage(depthmap, View::VIEW_DEPTH_MAP) == ErrorCode::SUCCESS) {
+                    publishDepth(depthmap, pub_depth, depth_frame_id, time);
+                }*/
             }
 
-            if (depth_SubNumber > 0) {
-             //    cam.ActivateDepthMapFeature();
-              //   cam.RetrieveImage(depthmap, mynteye::View::VIEW_DEPTH_MAP);
-               //  publishDepth(depthmap, pub_depth, depth_frame_id, time);
-            }
-            camera_rate.sleep();
+#ifdef VERBOSE
+            ++loop_count;
+            double elapsed = ros::Time::now().toSec() - loop_beg;
+            std::cout << "Loop count: " << loop_count
+                << ", fps: " << loop_count / elapsed << std::endl;
+#endif
+
             if (imu_SubNumber > 0) {
-                mynteye::IMUData imudata;
-                cam.RetrieveIMUData(imudatas, timestamp);
-                if (!imudatas.empty())
-                {
-                       size_t size = imudatas.size();
-                       for(int i = 0 ;i < size;i++)
-                       {
-                           imudata = imudatas[i];
-                           publishIMU(msg,imudata,pub_imu,imu_frame_id,ros::Time::now());
-                       //    ros::spinOnce();
-                           imu_rate.sleep();
-                       }
+                if (cam.RetrieveIMUData(imudatas, timestamp) == ErrorCode::SUCCESS && !imudatas.empty()) {
+                    if (imu_time_beg == -1) {
+                        imu_time_beg = imudatas[0].time;  // 0.1ms
+                        imu_ros_time_beg = ros::Time::now().toSec();  // 1sec
+                    }
+                    size_t size = imudatas.size();
+
+#ifdef VERBOSE
+                    double elapsed = ros::Time::now().toSec() - loop_beg;
+                    imu_count += size;
+                    std::cout << "IMU count: " << size << ", " << imu_count
+                        << ", fps: " << imu_count / elapsed << std::endl;
+#endif
+
+                    for (size_t i = 0; i < size; ++i) {
+                        auto &imudata = imudatas[i];
+                        ros::Time imu_ros_time(imu_ros_time_beg + (imudata.time - imu_time_beg) * 0.0001f);
+
+#ifdef VERBOSE
+                        std::cout << "  IMU[" << i << "] time: " << (imudata.time / 10) << " ms"
+                            << ", accel(" << imudata.accel_x << "," << imudata.accel_y << "," << imudata.accel_z << ")"
+                            << ", gyro(" << imudata.gyro_x << "," << imudata.gyro_y << "," << imudata.gyro_z << ")"
+                            << std::endl;
+                        std::cout << "    stamp: " << imu_ros_time << std::endl;
+#endif
+
+                        publishIMU(msg,imudata,pub_imu,imu_frame_id,imu_ros_time);
+                        // Sleep 1ms, otherwise publish may drop some IMUs.
+                        ros::Duration(0.001).sleep();
+                    }
                 }
             }
 
+            // Sleep to control camera hz.
+            loop_rate.sleep();
         }
     }
-
 }
 
 void onInit() {
@@ -297,9 +355,8 @@ void onInit() {
     std::string imu_topic = "imu";
     imu_frame_id = "/mynt_imu_frame";
 
-    device_name = 0;
-    camera_hz = 30;
-    imu_hz = 250;
+    device_name = 1;
+    camera_hz = 20;
 
     nh = getMTNodeHandle();
     nh_ns = getMTPrivateNodeHandle();
@@ -313,8 +370,6 @@ void onInit() {
     nh_ns.getParam("depth_topic", depth_topic);
     nh_ns.getParam("device_name", device_name);
     nh_ns.getParam("imu_topic", imu_topic);
-
-
 
     image_transport::ImageTransport it_mynteye(nh);
 
@@ -339,9 +394,13 @@ void onInit() {
             (new boost::thread(boost::bind(&MYNTWrapperNodelet::device_poll, this)));
 }
 
-~MYNTWrapperNodelet(){cam.Close();}
-    };
+~MYNTWrapperNodelet() {
+    cam.Close();
 }
+
+};
+
+}  // namespace mynt_wrapper
 
 #include <pluginlib/class_list_macros.h>
 PLUGINLIB_EXPORT_CLASS(mynt_wrapper::MYNTWrapperNodelet, nodelet::Nodelet);

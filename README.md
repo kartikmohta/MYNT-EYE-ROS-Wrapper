@@ -49,6 +49,6 @@ $ source ./devel/setup.bash
 Open a terminal and launch the wrapper:
 
 ```
-$ roslaunch MYNT-EYE-ROS-Wrapper mynt_camera.launch  or rosrun mynteye_ros_wrapper mynt
+$ roslaunch mynteye_ros_wrapper mynt_camera.launch  or rosrun mynteye_ros_wrapper mynteye_wrapper_node
   
 ```

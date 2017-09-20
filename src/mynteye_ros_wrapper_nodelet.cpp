@@ -22,7 +22,7 @@
 #include "calibration_parameters.h"
 #include "init_parameters.h"
 
-// #define VERBOSE
+#define VERBOSE
 
 namespace mynt_wrapper {
 
@@ -224,12 +224,17 @@ void fillCamInfo(const mynteye::Resolution &resolution,
 void device_poll() {
     using namespace mynteye;
 
-    ros::Rate loop_rate(camera_hz);
+    //ros::Rate loop_rate(camera_hz);
 
     InitParameters params(std::to_string(device_name));
     cam.Open(params);
+
+    if (!cam.IsOpened()) {
+        std::cerr << "Error: Open camera failed" << std::endl;
+        return;
+    }
+
     //cam.SetMode(Mode::MODE_CPU);
-    cam.ActivateAsyncGrabFeature(true);
     //cam.ActivateDepthMapFeature();
 
     CalibrationParameters *calib_params = nullptr;
@@ -242,10 +247,17 @@ void device_poll() {
     fillCamInfo(resolution, calib_params, left_cam_info_msg, right_cam_info_msg, left_frame_id, right_frame_id);
 
     std::vector<IMUData> imudatas;
-    std::uint32_t timestamp;
+    std::uint32_t timestamp = 0;
 
     std::uint32_t imu_time_beg = -1;
     double imu_ros_time_beg;
+
+    ros::Time last_imu_ros_time;
+    bool last_imu_ros_time_valid = false;
+
+    std::uint32_t timestamp_prev = 0;
+    double timestamp_ros_prev = 0;
+    double timestamp_offset = 0;
 
 #ifdef VERBOSE
     std::uint64_t imu_count = 0;
@@ -265,7 +277,12 @@ void device_poll() {
         int imu_SubNumber = pub_imu.getNumSubscribers();
         bool runLoop = (left_SubNumber + left_raw_SubNumber + right_SubNumber + right_raw_SubNumber + depth_SubNumber + imu_SubNumber) > 0;
         if (runLoop) {
-            ros::Time time = ros::Time::now();
+            ros::Time time;
+            if (imu_SubNumber > 0 && last_imu_ros_time_valid) {
+                time = last_imu_ros_time;
+            } else {
+                time = ros::Time::now();
+            }
             if (left_SubNumber > 0 &&
                     cam.RetrieveImage(leftImRGB, View::VIEW_LEFT) == ErrorCode::SUCCESS) {
                 publishCamInfo(left_cam_info_msg, pub_left_cam_info, time);
@@ -297,14 +314,24 @@ void device_poll() {
             double elapsed = ros::Time::now().toSec() - loop_beg;
             std::cout << "Loop count: " << loop_count
                 << ", fps: " << loop_count / elapsed << std::endl;
+            std::cout << "    stamp: " << time << std::endl;
 #endif
 
             if (imu_SubNumber > 0) {
                 if (cam.RetrieveIMUData(imudatas, timestamp) == ErrorCode::SUCCESS && !imudatas.empty()) {
+                    double timestamp_ros = ros::Time::now().toSec();
                     if (imu_time_beg == -1) {
                         imu_time_beg = imudatas[0].time;  // 0.1ms
-                        imu_ros_time_beg = ros::Time::now().toSec();  // 1sec
+                        imu_ros_time_beg = timestamp_ros;  // 1sec
                     }
+
+                    double offset = 0;
+                    if (timestamp_prev > 0) {
+                        offset = (timestamp - timestamp_prev) * 0.0001f - (timestamp_ros - timestamp_ros_prev);
+                    }
+                    timestamp_prev = timestamp;
+                    timestamp_ros_prev = timestamp_ros;
+
                     size_t size = imudatas.size();
 
 #ifdef VERBOSE
@@ -314,27 +341,43 @@ void device_poll() {
                         << ", fps: " << imu_count / elapsed << std::endl;
 #endif
 
-                    for (size_t i = 0; i < size; ++i) {
+                    double offset_each = offset / size;
+                    for (size_t i = 0, n = size-1; i <= n; ++i) {
                         auto &imudata = imudatas[i];
-                        ros::Time imu_ros_time(imu_ros_time_beg + (imudata.time - imu_time_beg) * 0.0001f);
+                        double offset_fix = timestamp_offset + offset_each * i;
+                        ros::Time imu_ros_time(imu_ros_time_beg + (imudata.time - imu_time_beg) * 0.0001f - offset_fix);
 
 #ifdef VERBOSE
                         std::cout << "  IMU[" << i << "] time: " << (imudata.time / 10) << " ms"
                             << ", accel(" << imudata.accel_x << "," << imudata.accel_y << "," << imudata.accel_z << ")"
                             << ", gyro(" << imudata.gyro_x << "," << imudata.gyro_y << "," << imudata.gyro_z << ")"
                             << std::endl;
-                        std::cout << "    stamp: " << imu_ros_time << std::endl;
+                        std::cout << "    stamp: " << imu_ros_time << ", offset: " << offset_fix << std::endl;
 #endif
 
                         publishIMU(msg,imudata,pub_imu,imu_frame_id,imu_ros_time);
                         // Sleep 1ms, otherwise publish may drop some IMUs.
                         ros::Duration(0.001).sleep();
+
+                        if (i == n) {
+                            last_imu_ros_time = imu_ros_time;
+                        }
                     }
+
+                    timestamp_offset += offset;
+                    last_imu_ros_time_valid = true;
+                } else {
+                    last_imu_ros_time_valid = false;
                 }
+            } else {
+                last_imu_ros_time_valid = false;
+                imu_time_beg = -1;
+                timestamp_prev = 0;
+                timestamp_offset = 0;
             }
 
             // Sleep to control camera hz.
-            loop_rate.sleep();
+            //loop_rate.sleep();
         }
     }
 }

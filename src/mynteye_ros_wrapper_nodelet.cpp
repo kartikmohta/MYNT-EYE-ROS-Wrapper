@@ -22,7 +22,7 @@
 #include "calibration_parameters.h"
 #include "init_parameters.h"
 
-#define VERBOSE
+// #define VERBOSE
 
 namespace mynt_wrapper {
 

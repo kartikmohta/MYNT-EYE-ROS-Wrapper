@@ -27,6 +27,17 @@ find_package(catkin REQUIRED COMPONENTS
 )
 
 find_package(OpenCV REQUIRED)
+if(OpenCV_FOUND)
+  if(OpenCV_VERSION VERSION_LESS 3.0)
+    set(USE_OPENCV2 TRUE)
+    add_definitions(-DUSE_OPENCV2)
+  else()
+    set(USE_OPENCV3 TRUE)
+    add_definitions(-DUSE_OPENCV3)
+  endif()
+else()
+  message(FATAL_ERROR "OpenCV not found. Allow set OpenCV_DIR to find it.")
+endif()
 
 catkin_package()
 

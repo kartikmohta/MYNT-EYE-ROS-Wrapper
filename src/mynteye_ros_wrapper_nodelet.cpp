@@ -26,6 +26,22 @@
 
 namespace mynt_wrapper {
 
+#ifdef USE_OPENCV2
+void CompatDistCoeffs(cv::Mat &distCoeffs) {
+    int w = distCoeffs.cols;
+    if (w >= 8) {
+        w = 8;
+    } else if (w >= 5) {
+        w = 5;
+    } else if (w >= 4) {
+        w = 4;
+    } else {
+        CV_Assert(false);
+    }
+    distCoeffs = distCoeffs.row(0).colRange(0,w);
+}
+#endif
+
 class MYNTWrapperNodelet : public nodelet::Nodelet {
 
     ros::NodeHandle nh;
@@ -198,6 +214,10 @@ void fillCamInfo(const mynteye::Resolution &resolution,
     cv::Size img_size(width, height);
     cv::Mat R1, R2, P1, P2, Q;
     cv::Rect leftROI, rightROI;
+#ifdef USE_OPENCV2
+    CompatDistCoeffs(calibration_parameters->D1);
+    CompatDistCoeffs(calibration_parameters->D2);
+#endif
     cv::stereoRectify(calibration_parameters->M1, calibration_parameters->D1,
             calibration_parameters->M2, calibration_parameters->D2, img_size,
             calibration_parameters->R, calibration_parameters->T, R1, R2, P1, P2, Q,

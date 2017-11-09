@@ -23,6 +23,7 @@
 #include "init_parameters.h"
 
 // #define VERBOSE
+// #define VERBOSE_TO_FILE
 
 namespace mynt_wrapper {
 
@@ -66,10 +67,14 @@ class MYNTWrapperNodelet : public nodelet::Nodelet {
     std::string right_frame_id;
     std::string left_frame_id;
     std::string depth_frame_id;
-    std::string imu_frame_id ;
+    std::string imu_frame_id;
 
     int device_name;
     int camera_hz;
+
+#ifdef VERBOSE_TO_FILE
+    std::ofstream file_imus;
+#endif
 
 sensor_msgs::ImagePtr imageToROSmsg(const cv::Mat &img,
         const std::string &encodingType,
@@ -283,6 +288,11 @@ void device_poll() {
     std::uint64_t imu_count = 0;
     std::uint64_t loop_count = 0;
     double loop_beg = ros::Time::now().toSec();
+
+#ifdef VERBOSE_TO_FILE
+    std::uint64_t imu_get_count = 0;
+    double imu_get_beg;
+#endif
 #endif
 
     while (nh_ns.ok()) {
@@ -331,9 +341,7 @@ void device_poll() {
 
 #ifdef VERBOSE
             ++loop_count;
-            double elapsed = ros::Time::now().toSec() - loop_beg;
-            std::cout << "Loop count: " << loop_count
-                << ", fps: " << loop_count / elapsed << std::endl;
+            std::cout << "Loop count: " << loop_count << std::endl;
             std::cout << "    stamp: " << time << std::endl;
 #endif
 
@@ -355,10 +363,16 @@ void device_poll() {
                     size_t size = imudatas.size();
 
 #ifdef VERBOSE
-                    double elapsed = ros::Time::now().toSec() - loop_beg;
                     imu_count += size;
-                    std::cout << "IMU count: " << size << ", " << imu_count
-                        << ", fps: " << imu_count / elapsed << std::endl;
+                    std::cout << "IMU count: " << size << ", " << imu_count << std::endl;
+#ifdef VERBOSE_TO_FILE
+                    if (imu_get_count == 0) {
+                        imu_get_beg = ros::Time::now().toSec();
+                        // ~/.ros/imus_publish.txt
+                        file_imus = std::ofstream("imus_publish.txt", std::ios::out);
+                    }
+                    file_imus << (++imu_get_count) << ", " << size << " IMUs, " << imu_count << " in total." << std::endl;
+#endif
 #endif
 
                     double offset_each = offset / size;
@@ -373,6 +387,12 @@ void device_poll() {
                             << ", gyro(" << imudata.gyro_x << "," << imudata.gyro_y << "," << imudata.gyro_z << ")"
                             << std::endl;
                         std::cout << "    stamp: " << imu_ros_time << ", offset: " << offset_fix << std::endl;
+#ifdef VERBOSE_TO_FILE
+                        file_imus << "IMU[" << i << "] stamp: " << std::fixed << imu_ros_time
+                            << ", accel(" << imudata.accel_x << "," << imudata.accel_y << "," << imudata.accel_z << ")"
+                            << ", gyro(" << imudata.gyro_x << "," << imudata.gyro_y << "," << imudata.gyro_z << ")"
+                            << std::endl;
+#endif
 #endif
 
                         publishIMU(msg,imudata,pub_imu,imu_frame_id,imu_ros_time);
@@ -383,6 +403,9 @@ void device_poll() {
                             last_imu_ros_time = imu_ros_time;
                         }
                     }
+#ifdef VERBOSE_TO_FILE
+                    file_imus << std::endl;
+#endif
 
                     timestamp_offset += offset;
                     last_imu_ros_time_valid = true;
@@ -399,6 +422,21 @@ void device_poll() {
             // Sleep to control camera hz.
             //loop_rate.sleep();
         }
+
+#ifdef VERBOSE_TO_FILE
+        if (imu_SubNumber <= 0 && imu_get_count > 0) {
+            double imu_get_end = ros::Time::now().toSec();
+            double elapsed = imu_get_end - imu_get_beg;
+            file_imus << "time beg: " << std::fixed << imu_get_beg << " s" << std::endl
+                << "time end: " << std::fixed << imu_get_end << " s" << std::endl
+                << "time cost: " << elapsed << " s" << std::endl << std::endl
+                << "imu: " << (imu_count / imu_get_count) << " per frame, "
+                    << imu_count << " in total, " << (imu_count / elapsed) << " Hz" << std::endl;
+
+            imu_get_count = 0;
+            imu_count = 0;
+        }
+#endif
     }
 }
 

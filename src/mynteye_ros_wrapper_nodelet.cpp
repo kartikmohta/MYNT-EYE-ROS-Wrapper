@@ -59,7 +59,6 @@ class MYNTWrapperNodelet : public nodelet::Nodelet {
     image_transport::Publisher pub_left;
     image_transport::Publisher pub_right;
 
-    sensor_msgs::Imu msg;
     ros::Publisher pub_left_cam_info;
     ros::Publisher pub_right_cam_info;
     ros::Publisher pub_imu;
@@ -115,19 +114,14 @@ void publishImage(const cv::Mat &img,
     pub_img.publish(imageToROSmsg(img, sensor_msgs::image_encodings::MONO8, img_frame_id, stamp));
 }
 
-void publishDepth(cv::Mat &depth,
-        const image_transport::Publisher &pub_depth,
-        const std::string &depth_frame_id,
-        const ros::Time &stamp) {
+void publishDepth(cv::Mat &depth, const ros::Time &stamp) {
     depth.convertTo(depth, CV_16UC1);
     pub_depth.publish(imageToROSmsg(depth, sensor_msgs::image_encodings::TYPE_16UC1, depth_frame_id, stamp));
 }
 
-void publishIMU(sensor_msgs::Imu &msg,
-        const mynteye::IMUData &imudata,
-        const ros::Publisher &pub,
-        const std::string imu_frame_id,
-        const ros::Time &stamp) {
+void publishIMU(const mynteye::IMUData &imudata, const ros::Time &stamp) {
+    sensor_msgs::Imu msg;
+
     msg.header.stamp = stamp;
     msg.header.frame_id = imu_frame_id;
 
@@ -163,7 +157,7 @@ void publishIMU(sensor_msgs::Imu &msg,
     msg.angular_velocity_covariance[7] = 0;
     msg.angular_velocity_covariance[8] = 0.02;
 
-    pub.publish(msg);
+    pub_imu.publish(msg);
 }
 
 void publishCamInfo(const sensor_msgs::CameraInfoPtr &cam_info_msg,
@@ -246,6 +240,34 @@ void fillCamInfo(const mynteye::Resolution &resolution,
     right_cam_info_msg->header.frame_id = right_frame_id;
 }
 
+ros::Time getImgStamp(bool reset = false) {
+    static std::uint32_t img_time_beg = -1;
+    static double img_ros_time_beg;
+    if (reset) {
+        img_time_beg = -1;
+        return ros::Time::now();
+    }
+    if (img_time_beg == -1) {
+        img_time_beg = cam.GetTimestamp();
+        img_ros_time_beg = ros::Time::now().toSec();
+    }
+    return ros::Time(img_ros_time_beg + (cam.GetTimestamp() - img_time_beg) * 0.0001f);
+}
+
+ros::Time getIMUStamp(mynteye::IMUData *imudata, bool reset = false) {
+    static std::uint32_t imu_time_beg = -1;
+    static double imu_ros_time_beg;
+    if (reset) {
+        imu_time_beg = -1;
+        return ros::Time::now();
+    }
+    if (imu_time_beg == -1) {
+        imu_time_beg = imudata->time;
+        imu_ros_time_beg = ros::Time::now().toSec();
+    }
+    return ros::Time(imu_ros_time_beg + (imudata->time - imu_time_beg) * 0.0001f);
+}
+
 void device_poll() {
     using namespace mynteye;
 
@@ -274,20 +296,10 @@ void device_poll() {
     std::vector<IMUData> imudatas;
     std::uint32_t timestamp = 0;
 
-    std::uint32_t imu_time_beg = -1;
-    double imu_ros_time_beg;
-
-    ros::Time last_imu_ros_time;
-    bool last_imu_ros_time_valid = false;
-
-    std::uint32_t timestamp_prev = 0;
-    double timestamp_ros_prev = 0;
-    double timestamp_offset = 0;
-
 #ifdef VERBOSE
+    std::uint64_t img_count = 0;
     std::uint64_t imu_count = 0;
-    std::uint64_t loop_count = 0;
-    double loop_beg = ros::Time::now().toSec();
+    //double loop_beg = ros::Time::now().toSec();
 
 #ifdef VERBOSE_TO_FILE
     std::uint64_t imu_get_count = 0;
@@ -307,64 +319,57 @@ void device_poll() {
         int imu_SubNumber = pub_imu.getNumSubscribers();
         bool runLoop = (left_SubNumber + left_raw_SubNumber + right_SubNumber + right_raw_SubNumber + depth_SubNumber + imu_SubNumber) > 0;
         if (runLoop) {
-            ros::Time time;
-            if (imu_SubNumber > 0 && last_imu_ros_time_valid) {
-                time = last_imu_ros_time;
-            } else {
-                time = ros::Time::now();
-            }
+            bool img_get = false;
             if (left_SubNumber > 0 &&
                     cam.RetrieveImage(leftImRGB, View::VIEW_LEFT) == ErrorCode::SUCCESS) {
-                publishCamInfo(left_cam_info_msg, pub_left_cam_info, time);
-                publishImage(leftImRGB, pub_left, left_frame_id, time);
+                publishCamInfo(left_cam_info_msg, pub_left_cam_info, getImgStamp());
+                publishImage(leftImRGB, pub_left, left_frame_id, getImgStamp());
+                img_get = true;
             }
             if (left_raw_SubNumber > 0 &&
                     cam.RetrieveImage(img_left, View::VIEW_LEFT_UNRECTIFIED) == ErrorCode::SUCCESS) {
-                publishCamInfo(left_cam_info_msg, pub_left_cam_info, time);
-                publishImage(img_left, pub_raw_left, left_frame_id, time);
+                publishCamInfo(left_cam_info_msg, pub_left_cam_info, getImgStamp());
+                publishImage(img_left, pub_raw_left, left_frame_id, getImgStamp());
+                img_get = true;
             }
             if (right_SubNumber > 0 &&
                     cam.RetrieveImage(rightImRGB, View::VIEW_RIGHT) == ErrorCode::SUCCESS) {
-                publishCamInfo(right_cam_info_msg, pub_right_cam_info, time);
-                publishImage(rightImRGB, pub_right, right_frame_id, time);
+                publishCamInfo(right_cam_info_msg, pub_right_cam_info, getImgStamp());
+                publishImage(rightImRGB, pub_right, right_frame_id, getImgStamp());
+                img_get = true;
             }
             if (right_raw_SubNumber > 0 &&
                     cam.RetrieveImage(img_right, View::VIEW_RIGHT_UNRECTIFIED) == ErrorCode::SUCCESS) {
-                publishCamInfo(right_cam_info_msg, pub_right_cam_info, time);
-                publishImage(img_right, pub_raw_right, right_frame_id, time);
+                publishCamInfo(right_cam_info_msg, pub_right_cam_info, getImgStamp());
+                publishImage(img_right, pub_raw_right, right_frame_id, getImgStamp());
+                img_get = true;
             }
             if (depth_SubNumber > 0) {
                 /*if (cam.RetrieveImage(depthmap, View::VIEW_DEPTH_MAP) == ErrorCode::SUCCESS) {
-                    publishDepth(depthmap, pub_depth, depth_frame_id, time);
+                    publishDepth(depthmap, getImgStamp());
                 }*/
+            }
+            if (!img_get) {
+                getImgStamp(true);  // reset
             }
 
 #ifdef VERBOSE
-            ++loop_count;
-            std::cout << "Loop count: " << loop_count << std::endl;
-            std::cout << "    stamp: " << time << std::endl;
+            if (img_get) {
+                ++img_count;
+                std::cout << "Img count: " << img_count << std::endl;
+                std::cout << "    time: " << cam.GetTimestamp()
+                          << ", stamp: " << getImgStamp() << std::endl
+                          << std::endl;
+            }
 #endif
 
             if (imu_SubNumber > 0) {
                 if (cam.RetrieveIMUData(imudatas, timestamp) == ErrorCode::SUCCESS && !imudatas.empty()) {
-                    double timestamp_ros = ros::Time::now().toSec();
-                    if (imu_time_beg == -1) {
-                        imu_time_beg = imudatas[0].time;  // 0.1ms
-                        imu_ros_time_beg = timestamp_ros;  // 1sec
-                    }
-
-                    double offset = 0;
-                    if (timestamp_prev > 0) {
-                        offset = (timestamp - timestamp_prev) * 0.0001f - (timestamp_ros - timestamp_ros_prev);
-                    }
-                    timestamp_prev = timestamp;
-                    timestamp_ros_prev = timestamp_ros;
-
                     size_t size = imudatas.size();
 
 #ifdef VERBOSE
                     imu_count += size;
-                    std::cout << "IMU count: " << size << ", " << imu_count << std::endl;
+                    std::cout << "IMU count: " << imu_count << std::endl;
 #ifdef VERBOSE_TO_FILE
                     if (imu_get_count == 0) {
                         imu_get_beg = ros::Time::now().toSec();
@@ -375,54 +380,48 @@ void device_poll() {
 #endif
 #endif
 
-                    double offset_each = offset / size;
                     for (size_t i = 0, n = size-1; i <= n; ++i) {
                         auto &imudata = imudatas[i];
-                        double offset_fix = timestamp_offset + offset_each * i;
-                        ros::Time imu_ros_time(imu_ros_time_beg + (imudata.time - imu_time_beg) * 0.0001f - offset_fix);
+                        ros::Time imu_ros_time = getIMUStamp(&imudata);
 
 #ifdef VERBOSE
-                        std::cout << "  IMU[" << i << "] time: " << (imudata.time / 10) << " ms"
-                            << ", accel(" << imudata.accel_x << "," << imudata.accel_y << "," << imudata.accel_z << ")"
+                        std::cout << "  IMU[" << i << "]"
+                            << " accel(" << imudata.accel_x << "," << imudata.accel_y << "," << imudata.accel_z << ")"
                             << ", gyro(" << imudata.gyro_x << "," << imudata.gyro_y << "," << imudata.gyro_z << ")"
-                            << std::endl;
-                        std::cout << "    stamp: " << imu_ros_time << ", offset: " << offset_fix << std::endl;
+                            << ", temp(" << imudata.temperature << ")" << std::endl;
+                        std::cout << "    time: " << imudata.time
+                            << ", stamp: " << imu_ros_time
+                            << ", time_offset: " << imudata.time_offset << std::endl;
 #ifdef VERBOSE_TO_FILE
                         file_imus << "IMU[" << i << "] stamp: " << std::fixed << imu_ros_time
                             << ", accel(" << imudata.accel_x << "," << imudata.accel_y << "," << imudata.accel_z << ")"
                             << ", gyro(" << imudata.gyro_x << "," << imudata.gyro_y << "," << imudata.gyro_z << ")"
-                            << std::endl;
+                            << ", temp(" << imudata.temperature << ")" << std::endl;
 #endif
 #endif
 
-                        publishIMU(msg,imudata,pub_imu,imu_frame_id,imu_ros_time);
+                        if (imu_SubNumber > 0) publishIMU(imudata, imu_ros_time);
                         // Sleep 1ms, otherwise publish may drop some IMUs.
                         ros::Duration(0.001).sleep();
-
-                        if (i == n) {
-                            last_imu_ros_time = imu_ros_time;
-                        }
                     }
+#ifdef VERBOSE
+                    std::cout << std::endl;
 #ifdef VERBOSE_TO_FILE
                     file_imus << std::endl;
 #endif
-
-                    timestamp_offset += offset;
-                    last_imu_ros_time_valid = true;
+#endif
                 } else {
-                    last_imu_ros_time_valid = false;
+                    getIMUStamp(nullptr, true);  // reset
                 }
             } else {
-                last_imu_ros_time_valid = false;
-                imu_time_beg = -1;
-                timestamp_prev = 0;
-                timestamp_offset = 0;
+                getIMUStamp(nullptr, true);  // reset
             }
 
             // Sleep to control camera hz.
             //loop_rate.sleep();
         }
 
+#ifdef VERBOSE
 #ifdef VERBOSE_TO_FILE
         if (imu_SubNumber <= 0 && imu_get_count > 0) {
             double imu_get_end = ros::Time::now().toSec();
@@ -437,22 +436,27 @@ void device_poll() {
             imu_count = 0;
         }
 #endif
+#endif
     }
 }
 
 void onInit() {
     std::string img_topic = "image_rect_color";
     std::string img_raw_topic = "image_raw_color";
+
     std::string left_topic = "left/" + img_topic;
     std::string left_raw_topic = "left/" + img_raw_topic;
     std::string left_cam_info_topic = "left/camera_info";
     left_frame_id = "/mynt_left_frame";
+
     std::string right_topic = "right/" + img_topic;
     std::string right_raw_topic = "right/" + img_raw_topic;
     std::string right_cam_info_topic = "right/camera_info";
     right_frame_id = "/mynt_right_frame";
+
     std::string depth_topic = "depth/depth_registered";
     depth_frame_id = "/mynt_depth_frame";
+
     std::string imu_topic = "imu";
     imu_frame_id = "/mynt_imu_frame";
 
@@ -478,18 +482,21 @@ void onInit() {
     NODELET_INFO_STREAM("Advertized on topic " << left_topic);
     pub_raw_left = it_mynteye.advertise(left_raw_topic, 1);
     NODELET_INFO_STREAM("Advertized on topic " << left_raw_topic);
+    pub_left_cam_info = nh.advertise<sensor_msgs::CameraInfo>(left_cam_info_topic, 1);
+    NODELET_INFO_STREAM("Advertized on topic " << left_cam_info_topic);
+
     pub_right = it_mynteye.advertise(right_topic, 1);
     NODELET_INFO_STREAM("Advertized on topic " << right_topic);
     pub_raw_right = it_mynteye.advertise(right_raw_topic, 1);
     NODELET_INFO_STREAM("Advertized on topic " << right_raw_topic);
-    pub_depth = it_mynteye.advertise(depth_topic, 1);
-    NODELET_INFO_STREAM("Advertized on topic " << depth_topic);
-    pub_imu = nh.advertise<sensor_msgs::Imu>(imu_topic, 1);
-    NODELET_INFO_STREAM("Advertized on topic " << imu_topic);
-    pub_left_cam_info = nh.advertise<sensor_msgs::CameraInfo>(left_cam_info_topic, 1);
-    NODELET_INFO_STREAM("Advertized on topic " << left_cam_info_topic);
     pub_right_cam_info = nh.advertise<sensor_msgs::CameraInfo>(right_cam_info_topic, 1);
     NODELET_INFO_STREAM("Advertized on topic " << right_cam_info_topic);
+
+    pub_depth = it_mynteye.advertise(depth_topic, 1);
+    NODELET_INFO_STREAM("Advertized on topic " << depth_topic);
+
+    pub_imu = nh.advertise<sensor_msgs::Imu>(imu_topic, 1);
+    NODELET_INFO_STREAM("Advertized on topic " << imu_topic);
 
     device_poll_thread = boost::shared_ptr<boost::thread>
             (new boost::thread(boost::bind(&MYNTWrapperNodelet::device_poll, this)));

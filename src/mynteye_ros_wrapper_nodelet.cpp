@@ -388,7 +388,7 @@ void device_poll() {
                         std::cout << "  IMU[" << i << "]"
                             << " accel(" << imudata.accel_x << "," << imudata.accel_y << "," << imudata.accel_z << ")"
                             << ", gyro(" << imudata.gyro_x << "," << imudata.gyro_y << "," << imudata.gyro_z << ")"
-                            << ", temp(" << imudata.temperature << ")" << std::endl;
+                            << std::endl;
                         std::cout << "    time: " << imudata.time
                             << ", stamp: " << imu_ros_time
                             << ", time_offset: " << imudata.time_offset << std::endl;
@@ -396,7 +396,7 @@ void device_poll() {
                         file_imus << "IMU[" << i << "] stamp: " << std::fixed << imu_ros_time
                             << ", accel(" << imudata.accel_x << "," << imudata.accel_y << "," << imudata.accel_z << ")"
                             << ", gyro(" << imudata.gyro_x << "," << imudata.gyro_y << "," << imudata.gyro_z << ")"
-                            << ", temp(" << imudata.temperature << ")" << std::endl;
+                            << std::endl;
 #endif
 #endif
 

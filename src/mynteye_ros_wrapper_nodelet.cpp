@@ -60,6 +60,12 @@ class MYNTWrapperNodelet : public nodelet::Nodelet
   int device_name;
   mynteye::Rate camera_rate;
 
+  std::uint32_t imu_time_beg = -1;
+  double imu_ros_time_beg;
+
+  std::uint32_t img_time_beg = -1;
+  double img_ros_time_beg;
+
   sensor_msgs::ImagePtr imageToROSmsg(const cv::Mat &img,
                                       const std::string &encodingType,
                                       const std::string &frameId,
@@ -144,13 +150,16 @@ class MYNTWrapperNodelet : public nodelet::Nodelet
     pub_imu.publish(msg);
   }
 
-  void publishCamInfo(const sensor_msgs::CameraInfoPtr &cam_info_msg,
+  void publishCamInfo(const sensor_msgs::CameraInfo &cam_info,
                       const ros::Publisher &pub_cam_info,
                       const ros::Time &stamp)
   {
+    // Need to allocate a new message for every publish in a nodelet
+    const auto cam_info_msg =
+        boost::make_shared<sensor_msgs::CameraInfo>(cam_info);
     // static int seq = 0;
     cam_info_msg->header.stamp = stamp;
-    // cam_info_msg.header.seq = seq;
+    // cam_info_msg->header.seq = seq;
     pub_cam_info.publish(cam_info_msg);
     //++seq;
   }
@@ -241,8 +250,6 @@ class MYNTWrapperNodelet : public nodelet::Nodelet
 
   ros::Time getImgStamp(bool reset = false)
   {
-    static std::uint32_t img_time_beg = -1;
-    static double img_ros_time_beg;
     if(reset)
     {
       img_time_beg = -1;
@@ -259,8 +266,6 @@ class MYNTWrapperNodelet : public nodelet::Nodelet
 
   ros::Time getIMUStamp(const mynteye::IMUData *imudata, bool reset = false)
   {
-    static std::uint32_t imu_time_beg = -1;
-    static double imu_ros_time_beg;
     if(reset)
     {
       imu_time_beg = -1;
@@ -284,7 +289,7 @@ class MYNTWrapperNodelet : public nodelet::Nodelet
 
     if(!cam.IsOpened())
     {
-      ROS_ERROR("Error: Open camera failed");
+      NODELET_ERROR("Error: Open camera failed");
       return;
     }
 
@@ -292,8 +297,8 @@ class MYNTWrapperNodelet : public nodelet::Nodelet
 
     const auto calib_params = cam.GetCalibrationParameters();
 
-    sensor_msgs::CameraInfo left_cam_info_msg, right_cam_info_msg;
-    fillCamInfo(resolution, calib_params, left_cam_info_msg, right_cam_info_msg,
+    sensor_msgs::CameraInfo left_cam_info, right_cam_info;
+    fillCamInfo(resolution, calib_params, left_cam_info, right_cam_info,
                 left_frame_id, right_frame_id);
 
     cv::Mat img_left, img_right;
@@ -312,17 +317,12 @@ class MYNTWrapperNodelet : public nodelet::Nodelet
         const auto timestamp = getImgStamp();
         publishImage(img_left, pub_raw_left, left_frame_id, timestamp);
         publishImage(img_right, pub_raw_right, right_frame_id, timestamp);
-        // Need to allocate a new message for every publish in a nodelet
-        const auto left_cinfo_msg =
-            boost::make_shared<sensor_msgs::CameraInfo>(left_cam_info_msg);
-        const auto right_cinfo_msg =
-            boost::make_shared<sensor_msgs::CameraInfo>(right_cam_info_msg);
-        publishCamInfo(left_cinfo_msg, pub_left_cam_info, timestamp);
-        publishCamInfo(right_cinfo_msg, pub_right_cam_info, timestamp);
+        publishCamInfo(left_cam_info, pub_left_cam_info, timestamp);
+        publishCamInfo(right_cam_info, pub_right_cam_info, timestamp);
       }
       else
       {
-        ROS_WARN("Reset Image begin time");
+        NODELET_WARN("Reset Image begin time");
         getImgStamp(true); // reset
       }
 
@@ -340,7 +340,7 @@ class MYNTWrapperNodelet : public nodelet::Nodelet
       }
       else
       {
-        ROS_WARN("Reset IMU begin time");
+        NODELET_WARN("Reset IMU begin time");
         getIMUStamp(nullptr, true); // reset
       }
     }
@@ -371,12 +371,17 @@ class MYNTWrapperNodelet : public nodelet::Nodelet
 
     int camera_rate_int;
     nh_ns.param("camera_rate", camera_rate_int, 0);
-    if(camera_rate_int == 1)
+    if(camera_rate_int == 0)
+      camera_rate = mynteye::RATE_50_FPS_500_HZ;
+    else if(camera_rate_int == 1)
       camera_rate = mynteye::RATE_25_FPS_500_HZ;
     else if(camera_rate_int == 2)
       camera_rate = mynteye::RATE_10_FPS_200_HZ;
     else
+    {
+      NODELET_WARN("Invalid camera_rate value, setting to RATE_50_FPS_500_HZ");
       camera_rate = mynteye::RATE_50_FPS_500_HZ;
+    }
 
     image_transport::ImageTransport it_mynteye(nh_ns);
 

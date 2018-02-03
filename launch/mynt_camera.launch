@@ -3,7 +3,9 @@
     args="standalone mynt_wrapper/MYNTWrapperNodelet" output="screen">
 
     <param name="device_name"   type="int"  value="1" />
-    <param name="camera_rate"   type="int"  value="2" />
+
+    <!-- 0: RATE_50_FPS_500_HZ, 1: RATE_25_FPS_500_HZ, 2: RATE_10_FPS_200_HZ -->
+    <param name="camera_rate"   type="int"  value="1" />
 
     <param name="left_raw_topic"        value="left/image_raw" />
     <param name="left_cam_info_topic"   value="left/camera_info" />

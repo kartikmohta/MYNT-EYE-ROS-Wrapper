@@ -1,7 +1,7 @@
-cmake_minimum_required(VERSION 2.8.3)
+cmake_minimum_required(VERSION 2.8.12)
 project(mynteye_ros_wrapper)
 
-add_definitions(-std=c++11)
+add_compile_options(-std=c++11 -Wall)
 
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
@@ -16,14 +16,10 @@ set(MYNT_SDK_LIB_DIR ${MYNTEYE_SDK_DIR}/lib)
 
 
 find_package(catkin REQUIRED COMPONENTS
-  dynamic_reconfigure
   image_transport
-  pcl_conversions
-  rosconsole
+  nodelet
   roscpp
   sensor_msgs
-  tf2_ros
-  nodelet
 )
 
 find_package(OpenCV REQUIRED)
@@ -59,7 +55,8 @@ target_link_libraries(MYNTWrapper
   ${catkin_LIBRARIES}
   ${OpenCV_LIBS}
   ${MYNT_SDK_LIB_DIR}/libmynteye_core.so)
-add_dependencies(MYNTWrapper ${PROJECT_NAME}_gencfg)
+add_dependencies(MYNTWrapper
+  ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 add_executable(mynteye_wrapper_node src/mynteye_ros_wrapper_node.cpp)
 target_link_libraries(mynteye_wrapper_node
@@ -67,12 +64,10 @@ target_link_libraries(mynteye_wrapper_node
   ${OpenCV_LIBS}
   MYNTWrapper
 )
-add_dependencies(mynteye_wrapper_node ${PROJECT_NAME}_gencfg)
+add_dependencies(mynteye_wrapper_node
+  ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 # install
-
-FILE(GLOB_RECURSE extra_files ${CMAKE_SOURCE_DIR}/*)
-add_custom_target(dummy_${PROJECT_NAME} SOURCES ${extra_files})
 
 install(TARGETS
   MYNTWrapper
